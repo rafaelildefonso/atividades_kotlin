@@ -1,43 +1,44 @@
 package com.rafaelildefonso.listatarefas.repository
 
-import android.content.ContentValues
-import com.rafaelildefonso.listatarefas.database.DatabaseHelper
+import com.rafaelildefonso.listatarefas.database.TarefaDao
 import com.rafaelildefonso.listatarefas.model.Tarefa
+import com.rafaelildefonso.listatarefas.network.JsonPlaceholderApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
-class ListaTarefasRepository(private val dbHelper: DatabaseHelper) {
+class ListaTarefasRepository(
+    private val dao: TarefaDao,
+    private val api: JsonPlaceholderApi
+) {
 
-    suspend fun inserir(livro: Tarefa) = withContext(Dispatchers.IO) {
-        val db = dbHelper.writableDatabase
-        val valores = ContentValues().apply {
-            put(DatabaseHelper.COL_TITULO, livro.titulo)
-            put(DatabaseHelper.COL_DESCRICAO, livro.descricao)
-            put(DatabaseHelper.COL_STATUS, livro.status)
-        }
-        db.insert(DatabaseHelper.TABLE_TAREFAS, null, valores)
-    }
+    fun observarTarefas(): Flow<List<Tarefa>> = dao.observeTarefas()
 
-    suspend fun listarTodos(): List<Tarefa> = withContext(Dispatchers.IO) {
-        val db = dbHelper.readableDatabase
-        val cursor = db.query(
-            DatabaseHelper.TABLE_TAREFAS,
-            null, null, null, null, null,
-            "${DatabaseHelper.COL_STATUS} DESC"
-        )
-        val tarefas = mutableListOf<Tarefa>()
-        cursor.use {
-            while (it.moveToNext()) {
-                tarefas.add(
+    suspend fun sincronizarTarefas() = withContext(Dispatchers.IO) {
+        val todos = api.getTodos()
+        todos.forEach { dto ->
+            val existente = dao.porRemoteId(dto.id)
+            if (existente != null) {
+                dao.atualizar(
+                    existente.copy(
+                        titulo = dto.title,
+                        concluido = dto.completed
+                    )
+                )
+            } else {
+                dao.inserir(
                     Tarefa(
-                        id = it.getLong(it.getColumnIndexOrThrow(DatabaseHelper.COL_ID)),
-                        titulo = it.getString(it.getColumnIndexOrThrow(DatabaseHelper.COL_TITULO)),
-                        descricao = it.getString(it.getColumnIndexOrThrow(DatabaseHelper.COL_DESCRICAO)),
-                        status = it.getString(it.getColumnIndexOrThrow(DatabaseHelper.COL_STATUS))
+                        titulo = dto.title,
+                        descricao = "",
+                        concluido = dto.completed,
+                        remoteId = dto.id
                     )
                 )
             }
         }
-        tarefas
+    }
+
+    suspend fun inserirTarefa(tarefa: Tarefa) = withContext(Dispatchers.IO) {
+        dao.inserir(tarefa)
     }
 }
